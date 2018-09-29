@@ -1,95 +1,135 @@
-import os
-import math
-import numpy as np
-from sklearn.cross_validation import cross_val_score
-from sklearn.metrics import r2_score,make_scorer
-from sklearn.tree import DecisionTreeRegressor
+"""This regresssion_parking use the clustering-based Ensemble Prediction to predict the car parking occupancy of Melbourne.
+The program uses the values in a moving window (e.g., 8am-10am) as training data to predict the next
+30 mins/1hours/2 hours, etc.
 
-#load the parking occupancy data
-DATA_LOC='C:\\PhD\\data\\parking\\extract\\parking_usage_12P\\';
-DISCARDED_LOCS=np.array([2,6,23,24,29,38,44,46,47,48,56,64,65,66,71,79,81,83,93,109,110,113,115,116,118,129,141,148,149])-1
+Different values of window width are used for training and test data, e.g. use 2 hours to predict the next 1 hour,
+use 4 hours to predict the next 2 hours, etc.
 
-parking_data=np.array([])
-for file in os.listdir(DATA_LOC):
-    if file.endswith('.csv'):
-        try:
-            #locs x 96 intervals
-            data=np.loadtxt(DATA_LOC+file,delimiter=',',dtype=float)
-            data=np.delete(data,DISCARDED_LOCS,axis=0)
-            #slice 7:30-19:30
-            #data=data*100
+Two different models are built for comparison:
+    1. An ensemble prediction model built on results of the proposed subspace clustering algorithm
+    2. An ensemble prediction model built on randomly generated 'clusters'
+"""
 
-            if parking_data.shape[0]==0:
-                parking_data=data
-            else:
-                parking_data=np.vstack((parking_data,data))
-        except Exception:
-            print('Something wrong with '+file)
+from ensemble_prediction import *
+import matplotlib.pyplot as plt
 
-parking_data
+INTERVAL_OFFSET = 31
 
-#use WINDOW_WIDTH lookbacks to predict the next occupancy
-WINDOW_WIDTH=8
-NO_OF_LOCS=120
+starting_month = 'jun'
+parking_data = init_data(DATA_LOC + "list_of_inputs_starting_{}.txt".format(starting_month))
 
+cluster_data = open('clusters/final_cluster_presentation_{}.txt'.format(starting_month)).read().split('\n')
+clusters = []
+for c in cluster_data:
+    tmp_cluster = []
+    for item in c.split():
+        # 1 is the offset for difference in matlab and python indexing
+        tmp_cluster.append(int(item) - 1)
 
-#test with one  8pm-11pm to predict 11.15, 11.30
-#input_hours=32
-input_hours=32
-for input_hours in range(32,33):
-    predicted_hour_1=input_hours+WINDOW_WIDTH+1
-    predicted_hour_2=input_hours+WINDOW_WIDTH+2
-    predicted_hour_3=input_hours+WINDOW_WIDTH+3
-    predicted_hour_4=input_hours+WINDOW_WIDTH+4
-    predicted_hour_5=input_hours+WINDOW_WIDTH+5
-    predicted_hour_6=input_hours+WINDOW_WIDTH+6
-    predicted_hour_7=input_hours+WINDOW_WIDTH+7
-    predicted_hour_8=input_hours+WINDOW_WIDTH+8
+    clusters.append(tmp_cluster)
 
+# TO NOT WASTE ANOTHER 2 HOURS AGAIN: BE VERY VERY CAREFUL WITH THE INDEX. EVEN AN INCORRECT OFFSET OF 1 CAN SCREW UP THE ENTIRE RESULT
+# E.G.: TRAIN DATA ARE EXTRACTED ON ONE SET OF LOCATIONS, TEST DATA (TO BE PREDICTED USING THE SAME MODEL) ARE EXTRACTED
+# FROM ANOTHER SET
+NUM_OF_LOCATION = 149
+TRAIN_DATA_START = NUM_OF_LOCATION * 0
+TRAIN_DATA_END = NUM_OF_LOCATION * 90 - 1
 
-    observations=np.linspace(0,NO_OF_LOCS*30-1,NO_OF_LOCS*30,dtype=int)
-    observations_to_predict=np.linspace(NO_OF_LOCS*30-1,parking_data.shape[0]-1,num=parking_data.shape[0]-NO_OF_LOCS*30+1,dtype=int)
+TEST_DATA_START = TRAIN_DATA_END + 1
+TEST_DATA_END = NUM_OF_LOCATION * 100 - 1
+START_TIME = 32
 
+TRAIN_WINDOW = 8
+RANGE_PREDICTION = False
+PREDICT_AHEAD = 2
 
-    X=parking_data[:,np.linspace(input_hours,input_hours+WINDOW_WIDTH,WINDOW_WIDTH,dtype=int)][observations,:]
+random_clusters = []
+size_of_group = NUM_OF_LOCATION // 7
+for i in range(0, NUM_OF_LOCATION - size_of_group - 1, size_of_group):
+    random_clusters.append([i + m for m in range(size_of_group)])
 
-    Y1=parking_data[observations,predicted_hour_1]
-    Y2=parking_data[observations,predicted_hour_2]
-    Y3=parking_data[observations,predicted_hour_3]
-    Y4=parking_data[observations,predicted_hour_4]
-    Y5=parking_data[observations,predicted_hour_5]
-    Y6=parking_data[observations,predicted_hour_6]
-    Y7=parking_data[observations,predicted_hour_7]
-    Y8=parking_data[observations,predicted_hour_8]
+# append the remaining locations to the last cluster
+for i in range(NUM_OF_LOCATION - size_of_group - 1, NUM_OF_LOCATION):
+    random_clusters[-1].append(i)
 
-    regressor = DecisionTreeRegressor(random_state=0)
-    res=[]
-    # res.append(cross_val_score(regressor, X, Y1, cv=10, scoring='r2'))
-    # res.append(cross_val_score(regressor, X, Y2, cv=10, scoring='r2'))
-    # res.append(cross_val_score(regressor, X, Y3, cv=10, scoring='r2'))
-    # res.append(cross_val_score(regressor, X, Y4, cv=10, scoring='r2'))
-    # res.append(cross_val_score(regressor, X, Y5, cv=10, scoring='r2'))
-    # res.append(cross_val_score(regressor, X, Y6, cv=10, scoring='r2'))
-    # res.append(cross_val_score(regressor, X, Y7, cv=10, scoring='r2'))
-    # res.append(cross_val_score(regressor, X, Y8, cv=10, scoring='r2'))
+print(random_clusters)
+print(clusters)
 
-    #res=cross_val_score(regressor,X,np.transpose(np.vstack((Y1,Y2,Y3,Y4,Y5,Y6,Y7,Y8))),cv=10,scoring=r2_score(multioutput='uniform_average'))
-    res=cross_val_score(regressor,X,np.transpose(np.vstack((Y1,Y2,Y3,Y4,Y5,Y6,Y7,Y8))),cv=10,scoring=make_scorer(r2_score,multioutput='uniform_average'))
+cnt = 0
 
-    #print([np.mean(res[i]) for i in range(8)])
-    print(res)
+for predicting_hour in [2, 4, 8, 12, 16]:
 
+    one_model_scores = []
+    ensemble_scores = []
+    random_ensemble_scores = []
+    for i in range(16):
+        start_time = START_TIME + i
+        print()
+        print('=================================')
+        print(start_time)
 
-#train the model
-regressor.fit(X,np.transpose(np.vstack((Y1,Y2,Y3,Y4,Y5,Y6,Y7,Y8))))
+        important_hour = list(
+            np.linspace(start_time, start_time + 7 + predicting_hour, 7 + predicting_hour + 1, dtype=int))
+        important_hour = important_hour[:8] + important_hour[-1:]
 
-#data for prediction
-X_test=parking_data[:,np.linspace(input_hours,input_hours+WINDOW_WIDTH,WINDOW_WIDTH,dtype=int)][observations_to_predict,:]
+        # print("Using 12 observations before "+str((start_time)/4)+" to predict the next 2 hours")
+        # print("-----------------------------------------------------")
+        train_data = extract_clusters_for_modelling(parking_data[np.linspace(TRAIN_DATA_START, TRAIN_DATA_END,
+                                                                             TRAIN_DATA_END - TRAIN_DATA_START + 1,
+                                                                             dtype=int), :], NUM_OF_LOCATION, clusters,
+                                                    None)
+        test_data = extract_clusters_for_modelling(
+            parking_data[np.linspace(TEST_DATA_START, TEST_DATA_END, TEST_DATA_END - TEST_DATA_START + 1, dtype=int),
+            :], NUM_OF_LOCATION, clusters, None)
 
-Y_predicted=regressor.predict(X_test)
+        for m_i, c in enumerate(train_data):
+            print()
+            print("Column stats for cluster", m_i)
+            refined_cluster = c[:, important_hour]
+            refined_cluster_test = test_data[m_i][:, important_hour]
+            for col in range(refined_cluster.shape[1]):
+                print("Column ", col)
+                print(np.mean(refined_cluster[:, col]), np.std(refined_cluster[:, col]),
+                      np.mean(refined_cluster_test[:, col]), np.std(refined_cluster_test[:, col]))
 
-#verify the result
-Y_actual=parking_data[observations_to_predict,:][:,np.linspace(predicted_hour_1,predicted_hour_1+7,num=8,dtype=int)]
+        (predict, actual, ensemble_score, one_model_score) = fit_regression_tree_model(train_data, test_data,
+                                                                                       start_time,
+                                                                                       start_time + TRAIN_WINDOW - 1,
+                                                                                       predicting_hour, m_depth=3,
+                                                                                       export_tree=10,
+                                                                                       range_prediction=RANGE_PREDICTION)
 
-r2_score(Y_actual,Y_predicted,multioutput='uniform_average')
+        one_model_scores.append(one_model_score)
+        ensemble_scores.append(ensemble_score)
 
+        # FOR BENCHMARK: build another ensemble prediction model but use randomly-generated clusters
+        # Ideally the results should be much worse than the properly-clustered ensemble model
+        train_data_random_c = extract_clusters_for_modelling(parking_data[
+                                                             np.linspace(TRAIN_DATA_START, TRAIN_DATA_END - 1,
+                                                                         TRAIN_DATA_END - TRAIN_DATA_START, dtype=int),
+                                                             :], NUM_OF_LOCATION, random_clusters, None)
+        test_data_random_c = extract_clusters_for_modelling(
+            parking_data[np.linspace(TEST_DATA_START, TEST_DATA_END - 1, TEST_DATA_END - TEST_DATA_START, dtype=int),
+            :], NUM_OF_LOCATION, random_clusters, None)
+        (predict_random_c, actual_random_c, r2_random_c, r2_one_model_random_c) = fit_regression_tree_model(
+            train_data_random_c, test_data_random_c, start_time, start_time + TRAIN_WINDOW - 1, predicting_hour,
+            m_depth=3, export_tree=100, range_prediction=RANGE_PREDICTION)
+        random_ensemble_scores.append(r2_random_c)
+
+        print("R2 Score one model: {}".format(r2_one_model_random_c))
+        print("RANDOM R2 Score ensemble: {}".format(r2_random_c))
+
+    print(one_model_scores)
+    print(ensemble_scores)
+    print(random_ensemble_scores)
+
+    plt.figure(predicting_hour)
+
+    plt.plot(one_model_scores, label='one_model_r2')
+    plt.plot(ensemble_scores, label='ensemble_model_r2')
+    plt.plot(random_ensemble_scores, label='random_split_r2')
+    plt.legend(loc=3)
+    # plt.show()
+    plt.savefig('jun_sep_' + str(
+        predicting_hour) + '_hours_ahead_MAE.png')
+    plt.clf()
